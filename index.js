@@ -1,21 +1,20 @@
 const express = require("express");
 const multer = require("multer");
-const AWS = require("aws-sdk");
-const { S3 } = require("@aws-sdk/client-s3");
+
+const { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } = require("@aws-sdk/client-s3");
 
 const app = express();
-
-// const s3Client = new S3({});
-// await s3Client.createBucket(params);
 
 app.use(express.static("public"));
 
 const BUCKET_NAME = "s3-bucket-sdk-demo";
 
-AWS.config.update({
-  accessKeyId: "",
-  secretAccessKey: "",
+const s3Client = new S3Client({
   region: "ap-southeast-2",
+  credentials: {
+    accessKeyId: "AKIA2RFZOYTCWC6KBD5A",
+    secretAccessKey: "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",
+  },
 });
 
 const storage = multer.memoryStorage();
@@ -25,41 +24,36 @@ app.get("/", (req, res) => {
   res.sendFile(__dirname + "/index.html");
 });
 
-app.post("/upload", upload.array("files"), (req, res) => {
+app.post("/upload", upload.array("files"), async (req, res) => {
   console.log("uploading...");
+
   if (!req.files || req.files.length === 0) {
     return res.status(400).send("No files were uploaded");
   }
-  const s3 = new AWS.S3();
-  const uploadPromises = req.files.map((file) => {
-    const uploadParams = {
+
+  const uploadPromises = req.files.map(async (file) => {
+    const command = new PutObjectCommand({
       Bucket: BUCKET_NAME,
       Key: file.originalname,
       Body: file.buffer,
-    };
-    return s3.upload(uploadParams).promise();
+    });
+
+    await s3Client.send(command);
   });
 
-  Promise.all(uploadPromises).then((data) => {
-    data.forEach((uploadResult) => {
-      console.log("file uploaded successfully");
-      res.redirect("/");
-    });
-  });
+  await Promise.all(uploadPromises);
+
+  console.log("All files uploaded");
+  res.redirect("/");
 });
 
-app.get("/files", (req, res) => {
-  const s3 = new AWS.S3();
-
-  const listParams = {
+app.get("/files", async (req, res) => {
+  const command = new ListObjectsV2Command({
     Bucket: BUCKET_NAME,
-  };
+  });
 
-  s3.listObjectsV2(listParams, (err, data) => {
-    if (err) {
-      console.error("Error fetching files: ", err);
-      return res.status(500).send("internal server error");
-    }
+  try {
+    const data = await s3Client.send(command);
 
     const files = data.Contents.map((file) => ({
       name: file.Key,
@@ -67,24 +61,30 @@ app.get("/files", (req, res) => {
     }));
 
     res.json(files);
-  });
+  } catch (err) {
+    console.error("Error fetching files", err);
+    res.status(500).send("Error fetching files");
+  }
 });
 
-app.get("/files/:name/download", (req, res) => {
-  const s3 = new AWS.S3();
-  const downloadParams = {
+app.get("/files/:name/download", async (req, res) => {
+  const command = new GetObjectCommand({
     Bucket: BUCKET_NAME,
     Key: req.params.name,
-  };
-
-  s3.getObject(downloadParams, (err, data) => {
-    if (err) {
-      console.error("Error downloading file: ", err);
-      return res.status(500).send("internal server error");
-    }
-    res.attachment(req.params.name);
-    res.send(data.Body);
   });
+
+  try {
+    const data = await s3Client.send(command);
+
+    // Body property returned by GetObjectCommand is a stream, and Express is trying to JSON.stringify
+    // By piping the Body stream to the response, it will stream the download data instead of trying to stringify it.
+    // piping directly to the response is the simplest in this case.
+    data.Body.pipe(res);
+    res.attachment(req.params.name);
+  } catch (err) {
+    console.error("Error downloading file", err);
+    res.status(500).send("Error downloading file");
+  }
 });
 
 app.listen(5000, () => {

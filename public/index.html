@@ -14,19 +14,11 @@
   <body onload="fetchFiles()">
     <div class="container">
       <br />
-      <h1 class="text=center">
-        AWS S3 Storage CRUD Web App in Node.JS Express
-      </h1>
+      <h1 class="text=center">AWS S3 Storage CRUD Web App in Node.JS Express</h1>
       <br />
       <form action="/upload" method="post" enctype="multipart/form-data">
         <div class="form-group">
-          <input
-            required
-            type="file"
-            name="files"
-            multiple
-            class="form-control"
-          />
+          <input required type="file" name="files" multiple class="form-control" />
         </div>
         <div class="form-group">
           <button class="btn btn-block btn-danger">Upload File</button>
@@ -49,6 +41,7 @@
       integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
       crossorigin="anonymous"
     ></script>
-    <script src="script.js"></script>
+    <script src="script_fetch.js"></script>
+    <!-- <script src="script.js"></script> -->
   </body>
 </html>
