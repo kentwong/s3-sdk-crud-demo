@@ -2,20 +2,40 @@ const express = require("express");
 const multer = require("multer");
 
 const { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } = require("@aws-sdk/client-s3");
+const { STSClient, AssumeRoleCommand } = require("@aws-sdk/client-sts");
 
 const app = express();
 
 app.use(express.static("public"));
 
-const BUCKET_NAME = "s3-bucket-sdk-demo";
+async function getS3Client() {
+  // generate temporary credentials
+  const stsClient = new STSClient({ region: "ap-southeast-2" });
 
-const s3Client = new S3Client({
-  region: "ap-southeast-2",
-  credentials: {
-    accessKeyId: "AKIA2RFZOYTCWC6KBD5A",
-    secretAccessKey: "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",
-  },
-});
+  // Build unique session name
+  const now = new Date();
+  const sessionName = `session-${now.getTime()}`;
+
+  const assumeRoleCommand = new AssumeRoleCommand({
+    RoleArn: "arn:aws:iam::724090930373:role/s3-test-role",
+    RoleSessionName: sessionName,
+  });
+
+  const creds = await stsClient.send(assumeRoleCommand);
+
+  const s3Client = new S3Client({
+    region: "ap-southeast-2",
+    credentials: {
+      accessKeyId: creds.Credentials.AccessKeyId,
+      secretAccessKey: creds.Credentials.SecretAccessKey,
+      sessionToken: creds.Credentials.SessionToken,
+    },
+  });
+
+  return s3Client;
+}
+
+const BUCKET_NAME = "s3-bucket-sdk-demo";
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
@@ -26,6 +46,7 @@ app.get("/", (req, res) => {
 
 app.post("/upload", upload.array("files"), async (req, res) => {
   console.log("uploading...");
+  const s3 = await getS3Client();
 
   if (!req.files || req.files.length === 0) {
     return res.status(400).send("No files were uploaded");
@@ -38,7 +59,7 @@ app.post("/upload", upload.array("files"), async (req, res) => {
       Body: file.buffer,
     });
 
-    await s3Client.send(command);
+    await s3.send(command);
   });
 
   await Promise.all(uploadPromises);
@@ -48,12 +69,13 @@ app.post("/upload", upload.array("files"), async (req, res) => {
 });
 
 app.get("/files", async (req, res) => {
+  const s3 = await getS3Client();
   const command = new ListObjectsV2Command({
     Bucket: BUCKET_NAME,
   });
 
   try {
-    const data = await s3Client.send(command);
+    const data = await s3.send(command);
 
     const files = data.Contents.map((file) => ({
       name: file.Key,
@@ -68,13 +90,14 @@ app.get("/files", async (req, res) => {
 });
 
 app.get("/files/:name/download", async (req, res) => {
+  const s3 = await getS3Client();
   const command = new GetObjectCommand({
     Bucket: BUCKET_NAME,
     Key: req.params.name,
   });
 
   try {
-    const data = await s3Client.send(command);
+    const data = await s3.send(command);
 
     // Body property returned by GetObjectCommand is a stream, and Express is trying to JSON.stringify
     // By piping the Body stream to the response, it will stream the download data instead of trying to stringify it.
